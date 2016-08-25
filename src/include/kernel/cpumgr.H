@@ -5,7 +5,7 @@
 /*                                                                        */
 /* OpenPOWER HostBoot Project                                             */
 /*                                                                        */
-/* Contributors Listed Below - COPYRIGHT 2010,2016                        */
+/* Contributors Listed Below - COPYRIGHT 2010,2017                        */
 /* [+] International Business Machines Corp.                              */
 /*                                                                        */
 /*                                                                        */
@@ -224,7 +224,7 @@ class CpuManager
              */
         static uint64_t cv_cpuSeq;
 
-        static bool cv_forcedMemPeriodic;       //!<  force free / coalesce.
+        static uint8_t cv_forcedMemPeriodic;       //!<  force free / coalesce.
 
         // If a shutdown of all CPUs is requested
         static bool cv_shutdown_requested;
