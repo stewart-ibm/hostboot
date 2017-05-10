@@ -1,0 +1,6 @@
+FROM ubuntu:16.04
+RUN apt-get update -qq
+RUN apt-get install -y gcc-powerpc64le-linux-gnu g++-powerpc64le-linux-gnu gcc ccache expect libssl-dev wget curl device-tree-compiler build-essential gcc python g++ pkg-config libz-dev libglib2.0-dev libpixman-1-dev libfdt-dev git libstdc++6 valgrind
+COPY . /build/
+WORKDIR /build
+ENTRYPOINT ./ci/build-ubuntu-16.04.sh
