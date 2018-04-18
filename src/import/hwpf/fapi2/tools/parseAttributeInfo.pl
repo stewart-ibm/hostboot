@@ -276,7 +276,7 @@ foreach my $argnum ( 0 .. $#ARGV )
     #--------------------------------------------------------------------------
     # For each Attribute
     #--------------------------------------------------------------------------
-    foreach my $attr ( @{ $attributes->{attribute} } )
+    foreach my $attr ( sort { $a->{id} <=> $b->{id} } @{ $attributes->{attribute} || [] } )
     {
         #----------------------------------------------------------------------
         # Print the Attribute ID and calculated value to attribute_ids.H and
@@ -349,7 +349,7 @@ foreach my $argnum ( 0 .. $#ARGV )
     # For each Attribute
     #--------------------------------------------------------------------------
 
-    foreach my $attr ( @{ $attributes->{attribute} } )
+    foreach my $attr ( sort { $a->{id} <=> $b->{id} } @{ $attributes->{attribute} || [] } )
     {
         my $attrOverride = "";
         my $attrSync     = "";
@@ -863,15 +863,17 @@ print FMFILE "};\n";
 #------------------------------------------------------------------------------
 # Print content for fapi2AttrSyncData.H
 #------------------------------------------------------------------------------
-while ( ( my $syncTarget, my $syncList ) = each(%attrSyncData) )
+foreach my $syncTarget (sort keys %attrSyncData)
 {
+    my $syncList = $attrSyncData{$syncTarget};
     $syncTarget =~ s/TARGET_TYPE_//g;
 
     #print "TYPE: $syncTarget\n";
 
     print FSFILE "const AttributeSyncInfo g_${syncTarget}_syncInfo[] = {\n";
-    while ( ( my $attrName, my $attrData ) = each( %{$syncList} ) )
+    foreach my $attrName ( sort keys %{$syncList} )
     {
+	my $attrData = $syncList->{$attrName};
         print FSFILE "\n\t//$attrName\n";
         print FSFILE "$attrData";
     }
@@ -887,8 +889,9 @@ print FSFILE "\to_size = 0;\n";
 print FSFILE "\tswitch(i_type)\n";
 print FSFILE "\t{\n";
 
-while ( ( my $syncTarget, my $syncList ) = each(%attrSyncData) )
+foreach my $syncTarget (sort keys %attrSyncData)
 {
+    my $syncList = $attrSyncData{$syncTarget};
     my $name = $syncTarget;
     $syncTarget =~ s/TARGET_TYPE_//g;
 

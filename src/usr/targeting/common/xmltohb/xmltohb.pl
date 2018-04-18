@@ -3457,7 +3457,7 @@ sub writeAttrMetadataMapCFile{
     print $outFile "\n";
     print $outFile "    static const Pair_t l_pair[] = {\n";
 
-    foreach my $key ( keys %finalAttrhash)
+    foreach my $key ( sort keys %finalAttrhash)
     {
         if(!(exists $finalAttrhash{$key}->{hbOnly}))
         {
@@ -4147,15 +4147,15 @@ sub writeAttrSizeMapCFile{
     my %finalAttrhash = ();
 
     # look for type sys-sys-power8 and store all attributes associated
-    foreach my $targetType (@{$attributes->{targetType}})
+    foreach my $targetType (sort @{$attributes->{targetType}})
     {
         if($targetType->{id} =~ m/^sys-sys-/)
         {
             my %attrhash = ();
             getTargetAttributes($targetType->{id}, $attributes,\%attrhash);
-            foreach my $key ( keys %attrhash )
+            foreach my $key ( sort keys %attrhash )
             {
-                foreach my $attr (@{$attributes->{attribute}})
+                foreach my $attr (sort @{$attributes->{attribute}})
                 {
                     if($attr->{id} eq $key)
                     {
@@ -4182,7 +4182,7 @@ sub writeAttrSizeMapCFile{
         }
     }
     print $outFile "\n";
-    foreach my $key ( keys %finalAttrhash)
+    foreach my $key ( sort keys %finalAttrhash)
     {
         print $outFile "    iv_mapSysAttrSize[ATTR_"
             . "$key] = sizeof($finalAttrhash{$key});\n";

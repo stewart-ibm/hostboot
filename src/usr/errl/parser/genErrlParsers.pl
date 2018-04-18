@@ -165,7 +165,7 @@ close(COMP_ID_FILE);
 if ($DEBUG)
 {
     print("---> Component ID values\n");
-    foreach my $key (keys %compIdToValueHash)
+    foreach my $key (sort keys %compIdToValueHash)
     {
         print ("CompId: $key = $compIdToValueHash{$key},\n");
     }
@@ -296,7 +296,7 @@ foreach my $file (@reasonCodeFiles)
             # Example: "MOD_PNORRP_WAITFORMESSAGE       = 0x01"
             if ($line =~ /(\w+)\s+=\s+0x([\dA-Fa-f]+)/)
             {
-                $modIdToValueHash{$namespace}->{$1} = $2;
+                $modIdToValueHash{$namespace}->{$1} = lc $2;
             }
         }
         elsif ($processing == $processingRcs)
@@ -429,7 +429,7 @@ print OFILE "namespace hbfw\n";
 print OFILE "{\n";
 print OFILE "    enum\n";
 print OFILE "    {\n";
-foreach my $key (keys %compIdToValueHash)
+foreach my $key (sort keys %compIdToValueHash)
 {
     print OFILE "        $key = 0x$compIdToValueHash{$key}00,\n";
 }
@@ -438,7 +438,7 @@ print OFILE "}\n\n";
 print OFILE "// Hostboot User Detail Data IDs\n";
 print OFILE "enum\n";
 print OFILE "{\n";
-foreach my $udKey (keys %udIdToValueHash)
+foreach my $udKey (sort keys %udIdToValueHash)
 {
     print OFILE "    $udKey = $udIdToValueHash{$udKey},\n";
 }
@@ -1088,6 +1088,7 @@ print OFILE "#include <stdlib.h>\n\n";
 print OFILE "namespace ERRORLOGDISPLAY\n{\n\n";
 print OFILE "// Error Info Table\n";
 print OFILE "ErrLogDisplay::errLogInfo ErrLogDisplay::errorInfo [] = {\n";
+
 foreach my $modID (sort hexToDecCmp keys(%displayDataEntries))
 {
     foreach my $rc (sort hexToDecCmp keys(%{$displayDataEntries{$modID}}))

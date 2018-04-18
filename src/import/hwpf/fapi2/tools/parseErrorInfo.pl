@@ -604,7 +604,7 @@ foreach my $argnum ( 0 .. $#ARGV )
     #--------------------------------------------------------------------------
     # For each Error
     #--------------------------------------------------------------------------
-    foreach my $err ( @{ $errors->{hwpError} } )
+    foreach my $err ( sort { $a->{rc} <=> $b->{rc} } @{ $errors->{hwpError} } )
     {
         my $objectStr    = undef;
         my $eiObjectStr  = "    const void * l_objects[] = {";
@@ -661,7 +661,7 @@ foreach my $argnum ( 0 .. $#ARGV )
         # Process the ffdc tags first -
         #----------------------------------------------------------------------
         # Local FFDC
-        foreach my $ffdc ( @{ $err->{ffdc} } )
+        foreach my $ffdc ( sort @{ $err->{ffdc} || [] } )
         {
 
             # Set the FFDC ID value in a global hash. The name is <rc>_<ffdc>
@@ -692,7 +692,7 @@ foreach my $argnum ( 0 .. $#ARGV )
 
         my $collectFfdcStr = undef;
         $count = 0;
-        foreach my $collectFfdc ( @{ $err->{collectFfdc} } )
+        foreach my $collectFfdc ( sort @{ $err->{collectFfdc} || []} )
         {
             if ( $count == 0 )
             {
@@ -772,7 +772,7 @@ foreach my $argnum ( 0 .. $#ARGV )
 
         if ( $arg_local_ffdc eq undef )
         {
-            foreach my $collectRegisterFfdc ( @{ $err->{collectRegisterFfdc} } )
+            foreach my $collectRegisterFfdc ( @{ $err->{collectRegisterFfdc} || [] } )
             {
                 #------------------------------------------------------------------
                 # Check that expected fields are present
@@ -783,7 +783,7 @@ foreach my $argnum ( 0 .. $#ARGV )
                     exit(1);
                 }
 
-                foreach my $id ( @{ $collectRegisterFfdc->{id} } )
+                foreach my $id ( sort @{ $collectRegisterFfdc->{id} || [] } )
                 {
 
                     if ( $crffdcCount eq 0 )
@@ -916,7 +916,7 @@ foreach my $argnum ( 0 .. $#ARGV )
         my %cdgChildHash;     # Records the callout/deconfigure/gards for Children
 
         # collect firmware trace
-        foreach my $collectTrace ( @{ $err->{collectTrace} } )
+        foreach my $collectTrace ( sort @{ $err->{collectTrace} || []} )
         {
             # Add an EI entry to eiEntryStr
             $eiEntryStr .= "    l_entries[$eiEntryCount].iv_type = fapi2::EI_TYPE_COLLECT_TRACE; \\\n";
@@ -971,7 +971,7 @@ foreach my $argnum ( 0 .. $#ARGV )
         }    #end foreach $ffdc
 
         # Multicast ID
-        foreach my $mcast ( @{ $err->{mcastId} } )
+        foreach my $mcast ( sort @{ $err->{mcastId} || [] } )
         {
             # Set the FFDC ID value in a global hash. The name is <rc>_<ffdc>
             my $ffdcName = $err->{rc} . "_";
@@ -997,7 +997,7 @@ foreach my $argnum ( 0 .. $#ARGV )
         if ( $arg_local_ffdc eq undef )
         {
             # Buffers, looks a lot like local ffdc
-            foreach my $buffer ( @{ $err->{buffer} } )
+            foreach my $buffer ( sort @{ $err->{buffer} || [] } )
             {
                 # Set the FFDC ID value in a global hash. The name is <rc>_<ffdc>
                 my $bufferName = $err->{rc} . "_";
@@ -1021,7 +1021,7 @@ foreach my $argnum ( 0 .. $#ARGV )
             }    #foreach $buffer
 
             # Procedure/Target/Bus/Child callouts
-            foreach my $callout ( @{ $err->{callout} } )
+            foreach my $callout ( sort { $a->{priority}.$a->{target} cmp $b->{priority}.$b->{target} } @{ $err->{callout} || [] } )
             {
                 if ( !exists $callout->{priority} )
                 {
@@ -1180,7 +1180,7 @@ foreach my $argnum ( 0 .. $#ARGV )
             }    # callout
 
             # Target/Child deconfigures
-            foreach my $deconfigure ( @{ $err->{deconfigure} } )
+            foreach my $deconfigure ( sort @{ $err->{deconfigure} || [] } )
             {
                 my $elementsFound = 0;
                 if ( exists $deconfigure->{target} )
@@ -1239,7 +1239,7 @@ foreach my $argnum ( 0 .. $#ARGV )
             }    # deconfigure
 
             # Target/Child Gards
-            foreach my $gard ( @{ $err->{gard} } )
+            foreach my $gard ( sort @{ $err->{gard} || [] } )
             {
                 my $elementsFound = 0;
                 if ( exists $gard->{target} )
@@ -1298,7 +1298,7 @@ foreach my $argnum ( 0 .. $#ARGV )
             }    # gard
 
             # Process the callout, deconfigures and GARDs for each Target
-            foreach my $cdg ( keys %cdgTargetHash )
+            foreach my $cdg ( sort keys %cdgTargetHash )
             {
                 my $callout  = 0;
                 my $priority = 'NONE';
@@ -1340,9 +1340,9 @@ foreach my $argnum ( 0 .. $#ARGV )
             }
 
             # Process the callout, deconfigures and GARDs for Child Targets
-            foreach my $parent ( keys %cdgChildHash )
+            foreach my $parent ( sort keys %cdgChildHash )
             {
-                foreach my $childType ( keys %{ $cdgChildHash{$parent} } )
+                foreach my $childType ( sort keys %{ $cdgChildHash{$parent} || [] } )
                 {
                     my $callout     = 0;
                     my $priority    = 'NONE';
@@ -1406,7 +1406,7 @@ foreach my $argnum ( 0 .. $#ARGV )
 
         # add ordinary types to eiObjectStr here
 
-        foreach my $eiObject (@eiObjects)
+        foreach my $eiObject (sort @eiObjects)
         {
             if ( $objCount > 0 )
             {
@@ -1527,7 +1527,7 @@ foreach my $argnum ( 0 .. $#ARGV )
         # Methods
         $ffdc_count = 0;
         my $count = 0;
-        foreach my $key ( keys %methods )
+        foreach my $key ( sort keys %methods )
         {
             print ECFILE $methods{$key}{method};
             $method_count++;
@@ -1600,7 +1600,7 @@ foreach my $argnum ( 0 .. $#ARGV )
             if ( $arg_empty_ffdc eq undef )
             {
                 print ECFILE "    public:\n";
-                foreach my $key ( keys %methods )
+                foreach my $key ( sort keys %methods )
                 {
                     if ( !( $methods{$key}{member} eq undef ) )
                     {
@@ -1664,7 +1664,7 @@ foreach my $argnum ( 0 .. $#ARGV )
          #--------------------------------------------------------------------------
          # For each registerFfdc.
          #--------------------------------------------------------------------------
-    foreach my $registerFfdc ( @{ $errors->{registerFfdc} } )
+    foreach my $registerFfdc ( sort { $a->{id}[0] <=> $b->{id}[0] } @{ $errors->{registerFfdc} || [] } )
     {
         #----------------------------------------------------------------------
         # Check that expected fields are present
@@ -1694,13 +1694,13 @@ foreach my $argnum ( 0 .. $#ARGV )
             print CRFILE "        case $registerFfdc->{id}[0]:\n";
 
             # Look for CFAM Register addresses
-            foreach my $cfamRegister ( @{ $registerFfdc->{cfamRegister} } )
+            foreach my $cfamRegister ( sort @{ $registerFfdc->{cfamRegister} || []} )
             {
                 print CRFILE "            o_cfamAddresses.push_back($cfamRegister);\n";
             }
 
             # Look for SCOM Register addresses
-            foreach my $scomRegister ( @{ $registerFfdc->{scomRegister} } )
+            foreach my $scomRegister ( sort @{ $registerFfdc->{scomRegister} || []} )
             {
                 print CRFILE "            o_scomAddresses.push_back($scomRegister);\n";
             }
@@ -1744,14 +1744,14 @@ print RCFILE " *\/\n";
 print RCFILE "enum HwpReturnCode\n";
 print RCFILE "{\n";
 
-foreach my $key ( keys %errNameToValueHash )
+foreach my $key ( sort keys %errNameToValueHash )
 {
     print RCFILE "    $key = 0x$errNameToValueHash{$key},\n";
 }
 print RCFILE "};\n\n";
 print RCFILE "}\n\n";
 print RCFILE "#else\n";
-foreach my $key ( keys %errNameToValueHash )
+foreach my $key ( sort keys %errNameToValueHash )
 {
     print RCFILE "    .set $key, 0x$errNameToValueHash{$key}\n";
 }
@@ -1772,7 +1772,7 @@ print EIFILE " * \@brief Enumeration of FFDC identifiers\n";
 print EIFILE " *\/\n";
 print EIFILE "enum HwpFfdcId\n";
 print EIFILE "{\n";
-foreach my $key ( keys %ffdcNameToValueHash )
+foreach my $key ( sort keys %ffdcNameToValueHash )
 {
     print EIFILE "    $key = 0x$ffdcNameToValueHash{$key},\n";
 }
