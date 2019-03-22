@@ -5,7 +5,7 @@
 /*                                                                        */
 /* OpenPOWER HostBoot Project                                             */
 /*                                                                        */
-/* Contributors Listed Below - COPYRIGHT 2011,2017                        */
+/* Contributors Listed Below - COPYRIGHT 2011,2019                        */
 /* [+] International Business Machines Corp.                              */
 /*                                                                        */
 /*                                                                        */
@@ -34,6 +34,7 @@
 #include <secureboot/service.H>
 
 // Forward declarations
+struct xz_dec;
 struct msg_t;
 class SecureRomManagerTest;
 
@@ -185,6 +186,17 @@ namespace VFS
              */
             void _vfsWatcher();
 
+	    /**
+	     * Read a page from PNOR, verify and decompress it.
+	     *
+	     * @param[in] s xz_dec context to use. Re-use context to avoid
+	     *              malloc()/free() at runtime.
+	     * @param[in] paddr physical address where the page should end up.
+	     * @param[in] vaddr relative virtual address of page
+	     * @return int 0 on success, <0 for failure.
+	     */
+	    int readPage(struct xz_dec *s, uint64_t paddr, uint64_t vaddr);
+
              /**
              * Verify page using secure hash page table
              *
@@ -197,12 +209,16 @@ namespace VFS
              *                         [Default 0 when called within VfsRP to
              *                          get internal hpt offset. Otherwise
              *                          filled in by test cases]
+	     * @param[out] xzOffset offset into insecure area of compressed page
+	     * @param[out] xzSize size of compressed page.
              *
              * @return errlog - error log to pass along shutdown path.
              */
             errlHndl_t verify_page(uint64_t i_vaddr,
                                    uint64_t i_baseOffset = 0,
-                                   uint64_t i_hashPageTableOffset = 0) const;
+                                   uint64_t i_hashPageTableOffset = 0,
+				   uint32_t *xzOffset = NULL,
+				   uint32_t *xzSize = NULL) const;
 
             /**
              * @brief  Determines the hash page table index associated with a

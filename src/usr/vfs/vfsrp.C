@@ -5,7 +5,7 @@
 /*                                                                        */
 /* OpenPOWER HostBoot Project                                             */
 /*                                                                        */
-/* Contributors Listed Below - COPYRIGHT 2011,2018                        */
+/* Contributors Listed Below - COPYRIGHT 2011,2019                        */
 /* [+] International Business Machines Corp.                              */
 /*                                                                        */
 /*                                                                        */
@@ -46,6 +46,7 @@
 #include <secureboot/containerheader.H>
 #include <kernel/console.H>
 #include <config.h>
+#include <xz/xz.h>
 
 using namespace VFS;
 
@@ -306,10 +307,76 @@ void VfsRp::_vfsWatcher()
     }
 }
 
+/*
+ * Load a page from PNOR, verifying secure boot (if needed) and decompressing
+ * it (again, if needed).
+ *
+ * The xz_dec context is so that we avoid re-allocating memory for each page.
+ *
+ * We don't (currently) support compressed pages without secure boot also
+ * compiled in.
+ */
+int VfsRp::readPage(struct xz_dec *s, uint64_t paddr, uint64_t vaddr)
+{
+#ifdef CONFIG_SECUREBOOT
+	uint32_t xzOffset = -1;
+	uint32_t xzSize = 0;
+
+	if (iv_hbExtSecure)
+	{
+		errlHndl_t l_errl = verify_page(vaddr, 0, 0, &xzOffset, &xzSize);
+		TRACFCOMP(g_trac_vfs, "xzOffset for 0x%llx is 0x%llx sz %u", vaddr, xzOffset, xzSize);
+
+		if(SECUREBOOT::enabled() && l_errl)
+		{
+			/* We only fail hard if booting in secure mode */
+			SECUREBOOT::handleSecurebootFailure(
+				l_errl, false, true);
+			return -EACCES;
+		}
+
+		struct xz_buf b;
+		enum xz_ret ret;
+
+		assert(s);
+
+		b.in = reinterpret_cast<uint8_t *>(iv_pnor_vaddr
+						   -iv_unprotectedOffset+xzOffset);
+		b.in_pos = 0;
+		b.in_size = xzSize;
+		b.out = reinterpret_cast<uint8_t *>(paddr);
+		b.out_pos = 0;
+		b.out_size = PAGE_SIZE;
+
+		ret = xz_dec_run(s, &b);
+		TRACFCOMP(g_trac_vfs, "xz compressed page 0x%llx from 0x%llx. in_pos %u out_pos %u, ret = %u",
+			  paddr, b.in, b.in_pos, b.out_pos, ret);
+
+
+		assert(ret == XZ_STREAM_END || ret == XZ_OK);
+		xz_dec_reset(s);
+		goto done;
+	}
+#endif
+	memcpy((void *)paddr, (void *)(iv_pnor_vaddr
+				       -iv_unprotectedOffset+vaddr),
+	       PAGE_SIZE);
+done:
+	mm_icache_invalidate((void*)paddr,PAGE_SIZE/8);
+
+	return 0;
+}
+
 // ----------------------------------------------------------------------------
 
 void VfsRp::msgHandler()
 {
+    struct xz_dec *s;
+
+    xz_crc32_init();
+    s = xz_dec_init(XZ_SINGLE, 0);
+    assert(s);
+
     while(1)
     {
         iv_msg = NULL;
@@ -356,28 +423,7 @@ void VfsRp::msgHandler()
                     uint64_t paddr = msg->data[1]; //page aligned
                     // Get relative virtual address within VFS space
                     vaddr-=VFS_EXTENDED_MODULE_VADDR;
-                    do
-                    {
-#ifdef CONFIG_SECUREBOOT
-                        if (SECUREBOOT::enabled() && iv_hbExtSecure)
-                        {
-                            errlHndl_t l_errl = verify_page(vaddr);
-                            // Failed to pass secureboot verification
-                            if(l_errl)
-                            {
-                                msg->data[1] = -EACCES;
-                                SECUREBOOT::handleSecurebootFailure(
-                                    l_errl, false, true);
-                                break;
-                            }
-                        }
-#endif
-                        memcpy((void *)paddr, (void *)(iv_pnor_vaddr
-                               -iv_unprotectedOffset+vaddr),
-                               PAGE_SIZE);
-                        mm_icache_invalidate((void*)paddr,PAGE_SIZE/8);
-                        msg->data[1] = 0;
-                    } while(0);
+		    msg->data[1] = readPage(s, paddr, vaddr);
                 }
                 msg_respond(iv_msgQ, msg);
                 break;
@@ -398,6 +444,8 @@ void VfsRp::msgHandler()
                 break;
         }
     } // while(1)
+
+    xz_dec_end(s);
 }
 
 // ----------------------------------------------------------------------------
@@ -772,10 +820,10 @@ void VfsRp::get_test_modules(std::vector<const char *> & o_list) const
 
 
 errlHndl_t VfsRp::verify_page(uint64_t i_vaddr, uint64_t i_baseOffset,
-                              uint64_t i_hashPageTableOffset) const
+                              uint64_t i_hashPageTableOffset, uint32_t *xzOffset, uint32_t *xzSize) const
 {
     errlHndl_t l_errl = nullptr;
-    uint64_t l_pnorVaddr = iv_pnor_vaddr-iv_unprotectedOffset+i_vaddr;
+    uint64_t l_pnorVaddr = iv_pnor_vaddr-iv_unprotectedOffset;
 
     // Get current hash page table entry
     TRACDCOMP(g_trac_vfs, "VfsRp::verify_page Current Page vaddr = 0x%llX, index = %d, bin file offset = 0x%llX",
@@ -783,8 +831,13 @@ errlHndl_t VfsRp::verify_page(uint64_t i_vaddr, uint64_t i_baseOffset,
              getHashPageTableIndex(i_vaddr,i_baseOffset),
              i_vaddr+PAGE_SIZE+iv_protectedPayloadSize);
     PAGE_TABLE_ENTRY_t* l_pageTableEntry = getHashPageTableEntry(i_vaddr,
-                                                        i_baseOffset,
-                                                        i_hashPageTableOffset);
+								 i_baseOffset,
+								 i_hashPageTableOffset);
+
+    if (xzOffset)
+	    *xzOffset = l_pageTableEntry->offset;
+    if (xzSize)
+	    *xzSize = l_pageTableEntry->xz_size;
 
     // Get previous hash page table entry
     uint64_t l_prevPage = i_vaddr - PAGE_SIZE;
@@ -799,16 +852,16 @@ errlHndl_t VfsRp::verify_page(uint64_t i_vaddr, uint64_t i_baseOffset,
 
     // Concatenate previous page table entry with current page data
     std::vector< std::pair<void*,size_t> > l_blobs;
-    l_blobs.push_back(std::make_pair<void*,size_t>(l_prevPageTableEntry,
-                                                   HASH_PAGE_TABLE_ENTRY_SIZE));
+    l_blobs.push_back(std::make_pair<void*,size_t>(l_prevPageTableEntry->hash,
+                                                   PAGE_TABLE_HASH_SIZE));
     l_blobs.push_back(std::make_pair<void*,size_t>(
-                                        reinterpret_cast<void*>(l_pnorVaddr),
-                                        PAGE_SIZE));
+                                        reinterpret_cast<void*>(l_pnorVaddr+l_pageTableEntry->offset),
+                                        l_pageTableEntry->xz_size));
     SHA512_t l_curPageHash = {0};
     SECUREBOOT::hashConcatBlobs(l_blobs, l_curPageHash);
 
     // Compare existing hash page table entry with the derived one.
-    if (memcmp(l_pageTableEntry,l_curPageHash,HASH_PAGE_TABLE_ENTRY_SIZE) != 0)
+    if (memcmp(l_pageTableEntry->hash,l_curPageHash,PAGE_TABLE_HASH_SIZE) != 0)
     {
         TRACFCOMP(g_trac_vfs, "ERROR:>VfsRp::verify_page secureboot verify fail on vaddr 0x%llX, offset into HBI 0x%llX",
                               i_vaddr,

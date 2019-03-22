@@ -71,6 +71,8 @@ use constant VFS_MODULE_TABLE_ENTRY_SIZE => 112;
 # VFS Module table max size
 use constant VFS_MODULE_TABLE_MAX_SIZE => VFS_EXTENDED_MODULE_MAX
                                           * VFS_MODULE_TABLE_ENTRY_SIZE;
+use constant VFS_MODULE_TABLE_PAGES => int((VFS_MODULE_TABLE_MAX_SIZE+(4096-1))/4096);
+
 # Flag parameter string passed into signing tools
 # Note spaces before/after are critical.
 use constant OP_SIGNING_FLAG => " --flags ";
@@ -623,18 +625,19 @@ sub manipulateImages
                     # Add secure container header
                     if ($secureboot && $isSpecialSecure)
                     {
+			my $xzbinfile;
                         $callerHwHdrFields{configure} = 1;
                         if (exists $hashPageTablePartitions{$eyeCatch})
                         {
                             if ($eyeCatch eq "HBI")
                             {
                                 # Pass HBB sw signatures as the salt entry.
-                                $tempImages{hashPageTable} = genHashPageTable($bin_file, $eyeCatch,
+                                ($tempImages{hashPageTable}, $xzbinfile) = genHashPageTable($bin_file, $eyeCatch,
                                                                         getBinDataFromFile($preReqImages{HBB_SW_SIG_FILE}));
                             }
                             else
                             {
-                                $tempImages{hashPageTable} = genHashPageTable($bin_file, $eyeCatch);
+                                ($tempImages{hashPageTable}, $xzbinfile) = genHashPageTable($bin_file, $eyeCatch);
                             }
                         }
                         # Add hash page table
@@ -648,12 +651,12 @@ sub manipulateImages
                             if ($eyeCatch eq "HBI")
                             {
                                 # Add the VFS module table to the payload text section.
-                                run_command("dd if=$bin_file of=$tempImages{VFS_MODULE_TABLE} count=".VFS_EXTENDED_MODULE_MAX." ibs=".VFS_MODULE_TABLE_ENTRY_SIZE);
+                                run_command("dd if=$xzbinfile of=$tempImages{VFS_MODULE_TABLE} count=".VFS_MODULE_TABLE_PAGES." ibs=".PAGE_SIZE);
                                 # Remove VFS module table from bin file
-                                run_command("dd if=$bin_file of=$tempImages{TEMP_BIN} skip=".VFS_EXTENDED_MODULE_MAX." ibs=".VFS_MODULE_TABLE_ENTRY_SIZE);
-                                run_command("cp $tempImages{TEMP_BIN} $bin_file");
+                                run_command("dd if=$xzbinfile of=$tempImages{TEMP_BIN} skip=".VFS_MODULE_TABLE_PAGES." ibs=".PAGE_SIZE);
+                                run_command("cp $tempImages{TEMP_BIN} $xzbinfile.nomodules");
                                 # Pad after hash page table to have the VFS module table end at a 4K boundary
-                                my $padSize = PAGE_SIZE - (($hashPageTableSize + VFS_MODULE_TABLE_MAX_SIZE) % PAGE_SIZE);
+                                my $padSize = PAGE_SIZE - (($hashPageTableSize + (VFS_MODULE_TABLE_PAGES*PAGE_SIZE)) % PAGE_SIZE);
                                 run_command("dd if=/dev/zero bs=$padSize count=1 | tr \"\\000\" \"\\377\" >> $tempImages{hashPageTable} ");
 
                                 # Move protected offset after padding of hash page table.
@@ -671,7 +674,7 @@ sub manipulateImages
                                 . "--protectedPayload $tempImages{PAYLOAD_TEXT} "
                                 . "--out $tempImages{PROTECTED_PAYLOAD}");
 
-                            run_command("cat $tempImages{PROTECTED_PAYLOAD} $bin_file > $tempImages{HDR_PHASE}");
+                            run_command("cat $tempImages{PROTECTED_PAYLOAD} $xzbinfile.nomodules > $tempImages{HDR_PHASE}");
                         }
                         # Handle read-only protected payload
                         elsif ($eyeCatch eq "HBD")
@@ -984,6 +987,7 @@ sub truncate_sha
             return substr ($sha, 0, SHA_TRUNCATE_SIZE);
 }
 
+use IPC::Open2;
 ################################################################################
 # genHashPageTable - Generates hash page table for PNOR partitions
 #   @return filename of binary hash page table content
@@ -994,11 +998,14 @@ sub genHashPageTable
 
     # Open the file
     my $hashPageTableFile = "$bin_dir/$eyeCatch.page_hash_table";
+    my $compressedPageFile = "$bin_dir/$eyeCatch.compressed";
     open (INBINFILE, "<", $bin_file) or die "Error opening file $bin_file: $!\n";
     open (OUTBINFILE, ">", $hashPageTableFile) or die "Error opening file $hashPageTableFile: $!\n";
+    open (XZOUTBINFILE, ">", $compressedPageFile) or die "Error opening file $compressedPageFile: $!\n";
     # set stream to binary mode
     binmode INBINFILE;
     binmode OUTBINFILE;
+    binmode XZOUTBINFILE;
 
     # Enter Salt as first entry
     my $salt_entry = 0;
@@ -1018,6 +1025,7 @@ sub genHashPageTable
     }
     my @hashes = ($salt_entry);
     print OUTBINFILE $salt_entry;
+    print OUTBINFILE pack("NN", 0x4245414b, 0x45522121);
 
     # boundary
     my $total_pages = POSIX::ceil((-s INBINFILE)/PAGE_SIZE);
@@ -1025,10 +1033,12 @@ sub genHashPageTable
     my $data;
     # Read data in chunks of PAGE_SIZE bytes
     my $index = 1;
+    my $xzoffset = 0;
     while ($index <= $total_pages)
     {
         read(INBINFILE,$data,PAGE_SIZE);
         die "genHashPageTable reading of $bin_file failed" if $!;
+
         # Add trailing zeros back in to pages at the end of the bin file.
         if(length($data) < PAGE_SIZE)
         {
@@ -1036,17 +1046,40 @@ sub genHashPageTable
             $data .= pack ("@".$pads);
         }
 
+	local (*Reader, *Writer);
+	my $pid = open2(\*Reader, \*Writer, "xz -0 -C crc32");
+        die "genHashPageTable piping to xz of $bin_file failed" if $!;
+	print Writer $data;
+	close Writer;
+	my $xzdata;
+	my $xzlen = read(Reader,$xzdata,PAGE_SIZE);
+	if ($index > VFS_MODULE_TABLE_PAGES) {
+	    print XZOUTBINFILE pack("N",($index-1)*PAGE_SIZE);
+	    $xzoffset+=4;
+	    printf("xzdata len PAGE_SIZE for 0x%04x at 0x%04x to %u\n",($index-1)*PAGE_SIZE,$xzoffset,$xzlen);
+	    print XZOUTBINFILE $xzdata;
+	} else {
+	    print "VFS Module table, leaving uncompressed\n";
+	    print XZOUTBINFILE $data;
+	    $xzlen = PAGE_SIZE;
+	    $xzdata = $data;
+	}
+
         # hash(salt + data)
         #   salt = previous entry
         #   data = current page
-        my $hash_entry = truncate_sha(sha512($hashes[$index-1].$data));
+        my $hash_entry = truncate_sha(sha512($hashes[$index-1].$xzdata));
         push @hashes, $hash_entry;
         $index++;
         print OUTBINFILE $hash_entry;
+	print OUTBINFILE pack("NN",$xzoffset,$xzlen);
+	$xzoffset += $xzlen;
     }
 
+    print "XZ compressed ".($total_pages*PAGE_SIZE)." down to $xzoffset";
     close INBINFILE or die "Error closing $bin_file: $!\n";
     close OUTBINFILE or die "Error closing $hashPageTableFile: $!\n";
+    close XZOUTBINFILE or die "Error closing $$compressedPageFile: $!\n";
 
     # Pad hash page table to a multiple of page size (4K)
     my $temp_file = "$bin_dir/$eyeCatch.page_hash_table.temp";
@@ -1054,7 +1087,7 @@ sub genHashPageTable
     run_command("dd if=$temp_file of=$hashPageTableFile ibs=4k conv=sync");
     run_command("rm $temp_file");
 
-    return $hashPageTableFile;
+    return ($hashPageTableFile, $compressedPageFile);
 }
 
 ################################################################################
@@ -1092,7 +1125,9 @@ sub gen_test_containers
     # name = secureboot_hash_page_table_container (no prefix in hb cacheadd)
     $test_container = "$bin_dir/secureboot_hash_page_table_container";
     run_command("dd if=/dev/urandom count=5 ibs=4096 | tr \"\\000\" \"\\377\" > $tempImages{TEST_CONTAINER_DATA}");
-    $tempImages{hashPageTable} = genHashPageTable($tempImages{TEST_CONTAINER_DATA}, "secureboot_test");
+    my $xzfile;
+    ($tempImages{hashPageTable}, $xzfile) = genHashPageTable($tempImages{TEST_CONTAINER_DATA}, "secureboot_test");
+    run_command("mv $xzfile $tempImages{TEST_CONTAINER_DATA}");
     run_command("$CUR_OPEN_SIGN_REQUEST --protectedPayload $tempImages{hashPageTable} --out $tempImages{PROTECTED_PAYLOAD}");
     run_command("cat $tempImages{PROTECTED_PAYLOAD} $tempImages{TEST_CONTAINER_DATA} > $test_container ");
 

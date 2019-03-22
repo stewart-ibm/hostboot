@@ -5,7 +5,7 @@
 /*                                                                        */
 /* OpenPOWER HostBoot Project                                             */
 /*                                                                        */
-/* Contributors Listed Below - COPYRIGHT 2013,2018                        */
+/* Contributors Listed Below - COPYRIGHT 2013,2019                        */
 /* [+] International Business Machines Corp.                              */
 /*                                                                        */
 /*                                                                        */
@@ -52,8 +52,19 @@ typedef std::vector< std::pair<void*,size_t> > blobPair_t;
 
 // TODO securebootp9 added for spnorrp.C - service.H needs many more updates
 // in order to match the p8 version
-const size_t HASH_PAGE_TABLE_ENTRY_SIZE = 32;
-typedef uint8_t PAGE_TABLE_ENTRY_t[HASH_PAGE_TABLE_ENTRY_SIZE];
+#define PAGE_TABLE_HASH_SIZE 32
+struct PAGE_TABLE_ENTRY {
+	uint8_t hash[PAGE_TABLE_HASH_SIZE];
+	/*
+	 * An XZ compressed Page Table has a hash for the *compressed* page
+	 * as well as an offset as to where the compressed blob for that
+	 * page is.
+	 */
+	uint32_t offset;
+	uint32_t xz_size;
+};
+const size_t HASH_PAGE_TABLE_ENTRY_SIZE = sizeof(struct PAGE_TABLE_ENTRY);
+typedef struct PAGE_TABLE_ENTRY PAGE_TABLE_ENTRY_t;
 
 
 namespace SECUREBOOT

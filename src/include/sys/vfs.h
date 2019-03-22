@@ -5,7 +5,7 @@
 /*                                                                        */
 /* OpenPOWER HostBoot Project                                             */
 /*                                                                        */
-/* Contributors Listed Below - COPYRIGHT 2010,2018                        */
+/* Contributors Listed Below - COPYRIGHT 2010,2019                        */
 /* [+] International Business Machines Corp.                              */
 /*                                                                        */
 /*                                                                        */
@@ -30,6 +30,7 @@
 #ifndef LINKER_C
 // other includes not visible to the linker
 #include <sys/task.h>
+#include <util/align.H>
 #endif
 
 #ifndef __HOSTBOOT_RUNTIME
@@ -100,7 +101,7 @@ extern VfsSystemModule VFS_MODULES[VFS_MODULE_MAX];
 
 extern uint64_t VFS_LAST_ADDRESS;
 
-#define VFS_MODULE_TABLE_SIZE (VFS_EXTENDED_MODULE_MAX * sizeof(VfsSystemModule))
+#define VFS_MODULE_TABLE_SIZE ALIGN_PAGE((VFS_EXTENDED_MODULE_MAX * sizeof(VfsSystemModule)))
 
 // Offset for TLS "dtv-relative displacement".
 // See http://www.uclibc.org/docs/tls-ppc64.txt
